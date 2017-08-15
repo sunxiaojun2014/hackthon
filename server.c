@@ -10,6 +10,7 @@
 #include <netinet/ip.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include <unistd.h>
@@ -22,7 +23,7 @@
 
 // 从buffer中读取一行,返回读取到的数目(包括换行符)
 int readline(char *in, char *out) {
-    if (in == NULL) {
+    if (in == NULL || strlen(in) == 0) {
         return 0;
     }
 
@@ -39,7 +40,26 @@ int readline(char *in, char *out) {
 
 // 砖头处理
 void brickProcess(char *in, char *out) {
-    memcpy(out, in, strlen(in));
+    char tmp[200];
+    int nr, in_total =0;
+    int out_total = 0;
+    int line_num = 1;
+
+    while ((nr = readline(in+in_total, tmp)) > 0) {
+        in_total += nr;
+        if (nr < 4) {
+            //TODO
+            char buf[64];
+            itoa(line_num, buf, 10);
+            memcpy(out, buf, strlen(buf));
+            out_total += strlen(buf);
+            memcpy(out+out_total, tmp, strlen(tmp)+1);
+        } else {
+        }
+
+        line_num++;
+    }
+    // memcpy(out, in, strlen(in));
 }
 
 int main(void) {
@@ -120,7 +140,7 @@ int main(void) {
 
     char brick[128];
     char readbuf[1024];
-    int pos;
+    int pos, l;
     for(pos = 0; pos < (int)strlen(buf);) {
         nr = read(connfd, readbuf, len);
         if (nr < 0) {
@@ -139,12 +159,11 @@ int main(void) {
         }
         printf("nr:%zd\n", nr);
         printf("server receive: %s", readbuf);
-        int l = readline(buf+pos, brick); 
+        l = readline(buf+pos, brick); 
         if (l <= 0) {
             continue;
         }
         pos += l;
-        // printf("ps:%d, l:%d, brick:%s\n", pos, l, brick);
 
         nw = write(connfd, brick, strlen(brick));
         if (nw < 0) {

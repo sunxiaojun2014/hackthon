@@ -21,8 +21,11 @@ int main(void) {
     int sockfd;
 
     ssize_t nr, nw;
-    char buf[16];
-    size_t len = 16;
+    char writebuf[8] = "request";
+    char readbuf[1024];
+    size_t len = 1024;
+
+    FILE *file;
 
     memset((void *)&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
@@ -39,28 +42,39 @@ int main(void) {
         print_err("client connect error:", errno);
         return RETURN_FAILURE;
     }
-    printf("connect done");
 
-    memset(buf, 0, len);
+    file = fopen("./output", "w+");
+    if (!file) {
+        print_err("client open file error:", errno);
+        return RETURN_FAILURE;
+    }
 
-    while (fgets(buf, len, stdin) != NULL) {
-        // printf("buf:%s, buflen:%lu\n", buf, strlen(buf));
-        nw = write(sockfd, buf, strlen(buf)+1);
+    memset(readbuf, 0, len);
+    size_t fw;
+
+    //while (fgets(buf, len, stdin) != NULL) {
+    while(1){
+        nw = write(sockfd, writebuf, strlen(writebuf));
         if (nw < 0) {
             print_err("client write error:", errno);
             break;
         }
-        printf("nw:%zd\n", nw);
 
-        nr = read(sockfd, buf, len);
+        nr = read(sockfd, readbuf, len);
         if (nr < 0) {
             print_err("client read error:", errno);
             break;
         }
-        printf("nr:%zd\n", nr);
-        printf("receive:%s", buf);
-        memset(buf, 0, len);
+        //printf("nr:%zd\n", nr);
+        //printf("receive:%s", readbuf);
+        fw = 0;
+        do {
+            fw = fwrite(readbuf+fw, 1, nr-fw, file);
+        } while((ssize_t)fw < nr);
     }
+
+    close(sockfd);
+    fclose(file);
 
     return 0;
 }
