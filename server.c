@@ -8,6 +8,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <netinet/ip.h>
+#include <pthread.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,6 +22,8 @@
 
 #define print_err(fmt, errno)   fprintf(stderr, fmt"%s\n", strerror(errno))
 
+int total = 0;
+
 // 从buffer中读取一行,返回读取到的数目(包括换行符)
 int readline(char *in, char *out) {
     if (in == NULL || strlen(in) == 0) {
@@ -29,37 +32,102 @@ int readline(char *in, char *out) {
 
     int i;
     for (i = 0; ; i++) {
-        // printf("%d, %c\n", i, in[i]);
         out[i] = in[i];
         if (in[i] == '\r' || in[i] == '\n') {
             break;
         }
     }
+    out[i+1] = '\0';
     return (i+1);
 }
 
-// 砖头处理
+// string 逆序排序
+char *reverse(char *str) {
+    char *r = str;
+    char *p = str;
+
+    while(*p)  p++;
+    p -= 2; // 不包含换行符
+
+    while (p > str) {
+        *p = *p ^ *str;
+        *str = *p ^ *str;
+        *p = *p ^ *str;
+        p--;
+        str++;
+    }
+
+    return r;
+}
+
+// 砖头处理, 返回处理的总字节数
 void brickProcess(char *in, char *out) {
-    char tmp[200];
-    int nr, in_total =0;
-    int out_total = 0;
+    char count[16], tmp[256];
+    int nr, index;
+    int in_total =0;
+    // int out_total = 0;
     int line_num = 1;
 
     while ((nr = readline(in+in_total, tmp)) > 0) {
+        //printf("tmp:%s", tmp);
         in_total += nr;
-        if (nr < 4) {
-            //TODO
-            char buf[64];
-            itoa(line_num, buf, 10);
-            memcpy(out, buf, strlen(buf));
-            out_total += strlen(buf);
-            memcpy(out+out_total, tmp, strlen(tmp)+1);
-        } else {
-        }
 
+        //TODO
+        // #if LINUX
+        //itoa(line_num, buf, 10);
+        // #if DARWIN
+        sprintf(count, "%d", line_num);
+        // printf("buf:%d, %d\n", *count, *(count+1));
+        memcpy(out+total, count, strlen(count));
+        total += strlen(count);
+        // printf("out_total:%d\n", out_total);
+
+        if (nr < 4) {
+            reverse(tmp);
+            memcpy(out+total, tmp, strlen(tmp));
+            total += strlen(tmp);
+            // printf("out:%d, tmp_len:%lu\n", out_total, strlen(tmp));
+        } else {
+            // 去除size/3的数据量
+            index = (nr - 1) / 3;
+            memcpy(tmp+index, tmp+2*index, strlen(tmp)+2-2*index);
+            // tmp 逆序
+            reverse(tmp);
+            memcpy(out+total, tmp, strlen(tmp));
+            // printf("out:%s", out+out_total-1);
+            total += strlen(tmp);
+        }
+        // printf("out_total:%d\n", out_total);
         line_num++;
     }
-    // memcpy(out, in, strlen(in));
+}
+
+void* file_process(void *buf) {
+    int filefd;
+    struct stat st;
+    void *mmapfile;
+
+    // 文件处理
+    filefd = open("./testfile", O_RDONLY);
+    if (filefd < 0) {
+        print_err("open file error:", errno);
+        return NULL;
+    }
+
+    if (fstat(filefd, &st) < 0) {
+        print_err("get file stat error:", errno);
+        return NULL;
+    }
+
+    mmapfile = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, filefd, 0);
+    if (mmapfile == NULL) {
+        print_err("mmap file error:", errno);
+        close(filefd);
+        return NULL;
+    }
+    
+    brickProcess((char *)mmapfile, (char *)buf);
+    return NULL;
 }
 
 int main(void) {
@@ -67,16 +135,17 @@ int main(void) {
     int listensock;
     socklen_t addrlen;
     int connfd;
-    
     ssize_t nr, nw;
-    char buf[1024];
-    size_t len = 1024;
-    memset(buf, 0, len);
 
-    int filefd;
-    struct stat st;
-    void *mmapfile;
+    // TODO
+    char *buf = (char *) malloc(sizeof(char) * 1024);
 
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, file_process, buf) < 0) {
+        print_err("server pthread create error:", errno);
+        return RETURN_FAILURE;
+    }
+    
     memset((void *)&sa, 0, sizeof(sa)); 
     sa.sin_family = AF_INET; 
     sa.sin_port = htons(PORT);
@@ -111,26 +180,6 @@ int main(void) {
         return RETURN_FAILURE;
     }
 
-    filefd = open("./testfile", O_RDONLY);
-    if (filefd < 0) {
-        print_err("open file error:", errno);
-        return RETURN_FAILURE;
-    }
-
-    if (fstat(filefd, &st) < 0) {
-        print_err("get file stat error:", errno);
-        return RETURN_FAILURE;
-    }
-
-    mmapfile = mmap(NULL, st.st_size, PROT_READ, MAP_SHARED, filefd, 0);
-    if (mmapfile == NULL) {
-        print_err("mmap file error:", errno);
-        close(filefd);
-        return RETURN_FAILURE;
-    }
-    
-    brickProcess((char *)mmapfile, buf);
-
     /*
     if (fcntl(connfd, F_SETFL, fcntl(connfd, F_GETFL) | O_NONBLOCK) < 0) {
         print_err("server set fd noblocking error:", errno);
@@ -138,10 +187,11 @@ int main(void) {
     }
     */
 
-    char brick[128];
-    char readbuf[1024];
+    char brick[256];
+    char readbuf[16];
+    int len = 16;
     int pos, l;
-    for(pos = 0; pos < (int)strlen(buf);) {
+    for (pos = 0; pos < total; ) {
         nr = read(connfd, readbuf, len);
         if (nr < 0) {
             /*
@@ -150,16 +200,17 @@ int main(void) {
                 continue;
             } else {
             */
-                print_err("server read error:", errno);
-                return RETURN_FAILURE;
+            print_err("server read error:", errno);
+            return RETURN_FAILURE;
         }
         if (nr == 0) {
             printf("client close\n");
             break;
         }
-        printf("nr:%zd\n", nr);
-        printf("server receive: %s", readbuf);
+        // printf("nr:%zd\n", nr);
+        // printf("server receive: %s\n", readbuf);
         l = readline(buf+pos, brick); 
+        // printf("l:%d, pos:%d, brick:%s",l, pos, brick);
         if (l <= 0) {
             continue;
         }

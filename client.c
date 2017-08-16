@@ -16,14 +16,40 @@
 
 #define print_err(fmt, errno)   fprintf(stderr, fmt"%s\n", strerror(errno))
 
+void *work(void *arg) {
+    (arg);
+    int nr, nw;
+    size_t fw;
+    while(1){
+        nw = write(sockfd, writebuf, strlen(writebuf));
+        if (nw < 0) {
+            print_err("client write error:", errno);
+            break;
+        }
+
+        nr = read(sockfd, readbuf, len);
+        if (nr < 0) {
+            print_err("client read error:", errno);
+            break;
+        }
+
+        fw = 0;
+        do {
+            fw = fwrite(readbuf+fw, 1, nr-fw, file);
+        } while((ssize_t)fw < nr);
+    }
+
+    return NULL;
+}
+
 int main(void) {
     struct sockaddr_in serv_addr;
     int sockfd;
 
     ssize_t nr, nw;
     char writebuf[8] = "request";
-    char readbuf[1024];
-    size_t len = 1024;
+    char readbuf[256];
+    size_t len = 256;
 
     FILE *file;
 
@@ -52,27 +78,7 @@ int main(void) {
     memset(readbuf, 0, len);
     size_t fw;
 
-    //while (fgets(buf, len, stdin) != NULL) {
-    while(1){
-        nw = write(sockfd, writebuf, strlen(writebuf));
-        if (nw < 0) {
-            print_err("client write error:", errno);
-            break;
-        }
-
-        nr = read(sockfd, readbuf, len);
-        if (nr < 0) {
-            print_err("client read error:", errno);
-            break;
-        }
-        //printf("nr:%zd\n", nr);
-        //printf("receive:%s", readbuf);
-        fw = 0;
-        do {
-            fw = fwrite(readbuf+fw, 1, nr-fw, file);
-        } while((ssize_t)fw < nr);
-    }
-
+    
     close(sockfd);
     fclose(file);
 
