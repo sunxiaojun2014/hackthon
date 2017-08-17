@@ -6,7 +6,9 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <arpa/inet.h>
+#include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
@@ -16,26 +18,39 @@
 
 #define print_err(fmt, errno)   fprintf(stderr, fmt"%s\n", strerror(errno))
 
-void *work(void *arg) {
-    (arg);
+int sockfd;
+
+struct work_data {
+   int  id; 
+   char *writebuf;
+   char *readbuf;
+   FILE *file;
+};
+
+void *do_work(void *arg) {
+    // (void)arg;
+    struct work_data *wd = (struct work_data *)arg;
     int nr, nw;
     size_t fw;
-    while(1){
-        nw = write(sockfd, writebuf, strlen(writebuf));
+    while(1) {
+        nw = write(sockfd, wd->writebuf, 8);
         if (nw < 0) {
+            printf("id:%d", wd->id);
             print_err("client write error:", errno);
             break;
         }
 
-        nr = read(sockfd, readbuf, len);
+        nr = read(sockfd, wd->readbuf, 256);
         if (nr < 0) {
+            printf("id:%d", wd->id);
             print_err("client read error:", errno);
             break;
         }
 
+        printf("id:%d, receive:%s", wd->id, wd->readbuf);
         fw = 0;
         do {
-            fw = fwrite(readbuf+fw, 1, nr-fw, file);
+            fw = fwrite(wd->readbuf+fw, 1, nr-fw, wd->file);
         } while((ssize_t)fw < nr);
     }
 
@@ -43,15 +58,23 @@ void *work(void *arg) {
 }
 
 int main(void) {
-    struct sockaddr_in serv_addr;
-    int sockfd;
+    int work_num = 10;
 
-    ssize_t nr, nw;
+    struct sockaddr_in serv_addr;
+    // int sockfd;
+
+    // ssize_t nr, nw;
     char writebuf[8] = "request";
     char readbuf[256];
     size_t len = 256;
+    memset(readbuf, 0, len);
 
     FILE *file;
+    file = fopen("./output", "a");
+    if (!file) {
+        print_err("client open file error:", errno);
+        return RETURN_FAILURE;
+    }
 
     memset((void *)&serv_addr, 0, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
@@ -69,15 +92,19 @@ int main(void) {
         return RETURN_FAILURE;
     }
 
-    file = fopen("./output", "w+");
-    if (!file) {
-        print_err("client open file error:", errno);
-        return RETURN_FAILURE;
+    pthread_t pids[work_num];
+    for (int i = 0; i < work_num; i++) {
+        struct work_data wd;
+        wd.id = i;
+        wd.writebuf = writebuf;
+        wd.readbuf = (char *) malloc (sizeof(char) * 256);
+        wd.file = file;
+        pthread_create(&pids[i], NULL, do_work, &wd);
     }
 
-    memset(readbuf, 0, len);
-    size_t fw;
-
+    for (int i = 0; i < work_num; i++) {
+        pthread_join(pids[i], NULL);
+    }
     
     close(sockfd);
     fclose(file);
