@@ -19,12 +19,12 @@
 #define print_err(fmt, errno)   fprintf(stderr, fmt"%s\n", strerror(errno))
 
 int sockfd;
+FILE *file;
 
 struct work_data {
    int  id; 
    char *writebuf;
    char *readbuf;
-   FILE *file;
 };
 
 void *do_work(void *arg) {
@@ -32,25 +32,27 @@ void *do_work(void *arg) {
     struct work_data *wd = (struct work_data *)arg;
     int nr, nw;
     size_t fw;
-    while(1) {
+    while (1) {
         nw = write(sockfd, wd->writebuf, 8);
         if (nw < 0) {
-            printf("id:%d", wd->id);
+            // printf("id:%d", wd->id);
             print_err("client write error:", errno);
             break;
         }
 
         nr = read(sockfd, wd->readbuf, 256);
         if (nr < 0) {
-            printf("id:%d", wd->id);
             print_err("client read error:", errno);
+            break;
+        } else if (nr == 0) {
+            printf("server closed socket");
             break;
         }
 
-        printf("id:%d, receive:%s", wd->id, wd->readbuf);
+        //printf("id:%d, receive:%s, nr:%d", wd->id, wd->readbuf, nr);
         fw = 0;
         do {
-            fw = fwrite(wd->readbuf+fw, 1, nr-fw, wd->file);
+            fw = fwrite(wd->readbuf+fw, 1, nr-fw, file);
         } while((ssize_t)fw < nr);
     }
 
@@ -58,7 +60,7 @@ void *do_work(void *arg) {
 }
 
 int main(void) {
-    int work_num = 10;
+    int work_num = 1;
 
     struct sockaddr_in serv_addr;
     // int sockfd;
@@ -69,8 +71,8 @@ int main(void) {
     size_t len = 256;
     memset(readbuf, 0, len);
 
-    FILE *file;
-    file = fopen("./output", "a");
+    file = fopen("./testdata1/output", "a");
+    // file = fopen("./output", "a");
     if (!file) {
         print_err("client open file error:", errno);
         return RETURN_FAILURE;
@@ -91,14 +93,13 @@ int main(void) {
         print_err("client connect error:", errno);
         return RETURN_FAILURE;
     }
-
+    
     pthread_t pids[work_num];
     for (int i = 0; i < work_num; i++) {
         struct work_data wd;
         wd.id = i;
         wd.writebuf = writebuf;
         wd.readbuf = (char *) malloc (sizeof(char) * 256);
-        wd.file = file;
         pthread_create(&pids[i], NULL, do_work, &wd);
     }
 

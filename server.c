@@ -67,7 +67,8 @@ void brickProcess(char *in, char *out) {
     int in_total =0;
     // int out_total = 0;
     int line_num = 1;
-
+    printf("brick process start\n");
+    int i = 1;
     while ((nr = readline(in+in_total, tmp)) > 0) {
         //printf("tmp:%s", tmp);
         in_total += nr;
@@ -99,6 +100,10 @@ void brickProcess(char *in, char *out) {
         }
         // printf("out_total:%d\n", out_total);
         line_num++;
+        //printf("total:%d\n", total);
+        if (total > i * 1024 * 1024) {
+            printf("total:%d\n", total);
+        }
     }
 }
 
@@ -108,7 +113,8 @@ void* file_process(void *buf) {
     void *mmapfile;
 
     // 文件处理
-    filefd = open("./testfile", O_RDONLY);
+    filefd = open("./testdata1/testfile", O_RDONLY);
+    // filefd = open("./testfile", O_RDONLY);
     if (filefd < 0) {
         print_err("open file error:", errno);
         return NULL;
@@ -126,7 +132,10 @@ void* file_process(void *buf) {
         return NULL;
     }
     
+    printf("mmap file end\n");
     brickProcess((char *)mmapfile, (char *)buf);
+    printf("brickProcess end\n");
+    exit(1);
     return NULL;
 }
 
@@ -215,6 +224,7 @@ int main(void) {
             continue;
         }
         pos += l;
+        // printf("server send:%s", brick);
 
         nw = write(connfd, brick, strlen(brick));
         if (nw < 0) {
